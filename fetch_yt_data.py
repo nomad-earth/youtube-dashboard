@@ -16,7 +16,7 @@ YouTube 数据看板 · 每日采集脚本
   GOOGLE_CREDENTIALS_JSON : get_token.py 生成的 credentials.json 完整内容（用于 Analytics + Sheets）
   YOUTUBE_API_KEY         : Google Cloud 创建的 API Key（用于拉视频列表，公开数据无需 OAuth）
   CHANNEL_ID              : 你的 YouTube 频道 ID（UC 开头）
-  SPREADSHEET_ID          : （可选）Google Sheets 表格 ID；不填则首次自动创建
+  SPREADSHEET_ID          : （必填）手动创建的 Google 表格 ID（打开 sheets.new 新建，取 URL 中 /d/ 与 /edit 之间的一串）
 """
 
 import json
@@ -111,15 +111,11 @@ def fetch_daily_stats(analytics, target_day: str):
 # ---------- 4. 写 Google Sheets ----------
 def get_sheet(gc):
     sheet_id = os.environ.get("SPREADSHEET_ID", "").strip()
-    if sheet_id:
-        return gc.open_by_key(sheet_id)
-    try:
-        return gc.open(SHEET_TITLE)  # 按标题找，找不到则创建
-    except Exception:
-        sh = gc.create(SHEET_TITLE)
-        print(f"✅ 已新建表格：{sh.url}")
-        print(f"   请把表格 ID「{sh.id}」加入 GitHub Secret：SPREADSHEET_ID（可选，不设也能继续用）")
-        return sh
+    if not sheet_id:
+        print("❌ 缺少 SPREADSHEET_ID：请先手动创建 Google 表格（打开 sheets.new 新建），")
+        print("   然后把表格 URL 里 /d/ 和 /edit 之间的一串 ID 设为 GitHub Secret：SPREADSHEET_ID")
+        sys.exit(1)
+    return gc.open_by_key(sheet_id)
 
 
 def ensure_sheet(sh, name, header):
