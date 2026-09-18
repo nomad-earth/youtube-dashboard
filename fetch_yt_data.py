@@ -168,7 +168,6 @@ def main():
         print("❌ 缺少环境变量 YOUTUBE_API_KEY 或 CHANNEL_ID")
         sys.exit(1)
     youtube = build("youtube", "v3", developerKey=api_key)
-    analytics = build("youtubeAnalytics", "v2", credentials=creds)
     import gspread
     gc = gspread.authorize(creds)
 
@@ -193,20 +192,7 @@ def main():
     added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行（共 {len(video_stats)} 个视频）")
 
-    # 日聚合（前天）
-    daily = fetch_daily_stats(analytics, target_str, channel_id)
-    if daily:
-        ws_daily = ensure_sheet(sh, SHEET_DAILY,
-            ["date", "views", "watch_time_minutes", "subs_gained", "subs_lost",
-             "likes", "shares", "comments", "avg_view_duration_seconds"])
-        row = [daily["date"], daily["views"], daily["watch_time_minutes"],
-               daily["subs_gained"], daily["subs_lost"], daily["likes"],
-               daily["shares"], daily["comments"], daily["avg_view_duration_seconds"]]
-        if append_if_new(ws_daily, [0], row, [daily["date"]]):
-            print(f"✅ 日聚合：已写入 {daily['date']} 的数据")
-        else:
-            print(f"⏭️ 日聚合 {daily['date']} 已存在，跳过")
-
+    # 日聚合（Analytics API 对品牌频道授权受限，暂用快照差值计算；此处留空，后续可补）
     print("🎉 本次采集完成")
 
 
