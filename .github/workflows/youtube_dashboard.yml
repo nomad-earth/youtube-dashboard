@@ -1,0 +1,29 @@
+name: YouTube 数据每日采集
+
+on:
+  # 每天北京时间 10:00 运行（UTC 02:00），此时前天(T-2)的 Analytics 数据已完整
+  schedule:
+    - cron: '0 2 * * *'
+  # 也支持在 GitHub 仓库 Actions 页面手动触发
+  workflow_dispatch: {}
+
+jobs:
+  fetch-youtube-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 运行采集脚本
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python fetch_yt_data.py

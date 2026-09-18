@@ -1,0 +1,8 @@
+# 敏感凭据（绝不推送）
+client_secret.json
+credentials.json
+OAuth凭据备忘.md
+
+# Python 缓存
+__pycache__/
+*.pyc
