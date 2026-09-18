@@ -33,10 +33,10 @@ SHEET_SNAPSHOT = "视频快照"
 SHEET_DAILY = "日聚合"
 
 # ---------- 1. 读取凭证 ----------
-def get_credentials():
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+def get_credentials(env_var, label):
+    creds_json = os.environ.get(env_var)
     if not creds_json:
-        print("❌ 缺少环境变量 GOOGLE_CREDENTIALS_JSON（get_token.py 生成的 credentials.json 内容）")
+        print(f"❌ 缺少环境变量 {env_var}（{label}）")
         sys.exit(1)
     return Credentials.from_authorized_user_info(json.loads(creds_json))
 
@@ -160,7 +160,9 @@ def batch_append_new(ws, key_cols_idx, rows):
 
 
 def main():
-    creds = get_credentials()
+    # 两个独立 token：Sheets 写入用个人账号，Analytics 读取用品牌账号（品牌账号不能带 spreadsheets scope）
+    sheets_creds = get_credentials("GOOGLE_CREDENTIALS_JSON", "Sheets写入")
+    analytics_creds = get_credentials("ANALYTICS_CREDENTIALS_JSON", "Analytics读取")
     # Data API 用 API Key（公开数据，不需要 OAuth，也规避 scope 冲突）
     api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
     channel_id = os.environ.get("CHANNEL_ID", "").strip()
@@ -168,8 +170,9 @@ def main():
         print("❌ 缺少环境变量 YOUTUBE_API_KEY 或 CHANNEL_ID")
         sys.exit(1)
     youtube = build("youtube", "v3", developerKey=api_key)
+    analytics = build("youtubeAnalytics", "v2", credentials=analytics_creds)
     import gspread
-    gc = gspread.authorize(creds)
+    gc = gspread.authorize(sheets_creds)
 
     today = date.today()
     target_day = today - timedelta(days=2)  # 前天（T-2，规避 48-72h 延迟）
@@ -192,7 +195,20 @@ def main():
     added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行（共 {len(video_stats)} 个视频）")
 
-    # 日聚合（Analytics API 对品牌频道授权受限，暂用快照差值计算；此处留空，后续可补）
+    # 日聚合（前天频道级明细，用品牌账号 token 调 Analytics API）
+    daily = fetch_daily_stats(analytics, target_str, channel_id)
+    if daily:
+        ws_daily = ensure_sheet(sh, SHEET_DAILY,
+            ["date", "views", "watch_time_minutes", "subs_gained", "subs_lost",
+             "likes", "shares", "comments", "avg_view_duration_seconds"])
+        row = [daily["date"], daily["views"], daily["watch_time_minutes"],
+               daily["subs_gained"], daily["subs_lost"], daily["likes"],
+               daily["shares"], daily["comments"], daily["avg_view_duration_seconds"]]
+        if append_if_new(ws_daily, [0], row, [daily["date"]]):
+            print(f"✅ 日聚合：已写入 {daily['date']} 的数据")
+        else:
+            print(f"⏭️ 日聚合 {daily['date']} 已存在，跳过")
+
     print("🎉 本次采集完成")
 
 
