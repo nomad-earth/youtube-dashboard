@@ -25,5 +25,7 @@ jobs:
       - name: 运行采集脚本
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: python fetch_yt_data.py

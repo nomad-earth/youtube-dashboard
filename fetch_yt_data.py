@@ -13,7 +13,9 @@ YouTube 数据看板 · 每日采集脚本
 数据延迟说明：Analytics 有 48-72 小时延迟，所以这里拉的是【前天】(T-2) 的数据。
 
 运行环境变量（GitHub Secrets）：
-  GOOGLE_CREDENTIALS_JSON : get_token.py 生成的 credentials.json 完整内容
+  GOOGLE_CREDENTIALS_JSON : get_token.py 生成的 credentials.json 完整内容（用于 Analytics + Sheets）
+  YOUTUBE_API_KEY         : Google Cloud 创建的 API Key（用于拉视频列表，公开数据无需 OAuth）
+  CHANNEL_ID              : 你的 YouTube 频道 ID（UC 开头）
   SPREADSHEET_ID          : （可选）Google Sheets 表格 ID；不填则首次自动创建
 """
 
@@ -38,11 +40,11 @@ def get_credentials():
         sys.exit(1)
     return Credentials.from_authorized_user_info(json.loads(creds_json))
 
-# ---------- 2. Data API：拉全部视频当天累计值 ----------
-def fetch_all_video_stats(youtube):
+# ---------- 2. Data API：拉全部视频当天累计值（公开数据，用 API Key，无需 OAuth） ----------
+def fetch_all_video_stats(youtube, channel_id):
     """返回 [{video_id, title, publish_date, views, likes, comments}]"""
     # 找到「上传」播放列表
-    ch = youtube.channels().list(part="contentDetails", mine=True).execute()
+    ch = youtube.channels().list(part="contentDetails", id=channel_id).execute()
     uploads_id = ch["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
 
     video_ids = []
@@ -145,7 +147,13 @@ def append_if_new(ws, key_cols_idx, new_row, key_values):
 
 def main():
     creds = get_credentials()
-    youtube = build("youtube", "v3", credentials=creds)
+    # Data API 用 API Key（公开数据，不需要 OAuth，也规避 scope 冲突）
+    api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
+    channel_id = os.environ.get("CHANNEL_ID", "").strip()
+    if not api_key or not channel_id:
+        print("❌ 缺少环境变量 YOUTUBE_API_KEY 或 CHANNEL_ID")
+        sys.exit(1)
+    youtube = build("youtube", "v3", developerKey=api_key)
     analytics = build("youtubeAnalytics", "v2", credentials=creds)
     import gspread
     gc = gspread.authorize(creds)
@@ -156,7 +164,7 @@ def main():
     print(f"📅 运行日期 {today.isoformat()}，采集目标 {target_str}")
 
     # 视频快照（每天全量）
-    video_stats = fetch_all_video_stats(youtube)
+    video_stats = fetch_all_video_stats(youtube, channel_id)
     sh = get_sheet(gc)
     ws_snap = ensure_sheet(sh, SHEET_SNAPSHOT,
         ["snapshot_date", "video_id", "title", "publish_date",
