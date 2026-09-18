@@ -128,7 +128,7 @@ def ensure_sheet(sh, name, header):
 
 
 def append_if_new(ws, key_cols_idx, new_row, key_values):
-    """幂等追加：同一 (date, video_id) 已存在则跳过，避免重复行"""
+    """幂等追加：同一 (date, video_id) 已存在则跳过，避免重复行（单行写入用）"""
     existing = ws.get_all_values()
     existing_keys = set()
     for row in existing[1:]:  # 跳过表头
@@ -139,6 +139,24 @@ def append_if_new(ws, key_cols_idx, new_row, key_values):
         return False
     ws.append_row(new_row)
     return True
+
+
+def batch_append_new(ws, key_cols_idx, rows):
+    """批量幂等追加：一次请求写入多行，规避 Sheets 每分钟写入配额"""
+    existing = ws.get_all_values()
+    existing_keys = set()
+    for row in existing[1:]:
+        if len(row) >= max(key_cols_idx) + 1:
+            existing_keys.add(tuple(row[i] for i in key_cols_idx))
+    new_rows = []
+    for r in rows:
+        key = tuple(r[i] for i in key_cols_idx)
+        if key not in existing_keys:
+            new_rows.append(r)
+            existing_keys.add(key)
+    if new_rows:
+        ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+    return len(new_rows)
 
 
 def main():
@@ -167,12 +185,12 @@ def main():
          "age_days", "total_views", "total_likes", "total_comments"])
 
     added = 0
+    snap_rows = []
     for v in video_stats:
         age = (target_day - date.fromisoformat(v["publish_date"])).days
-        row = [target_str, v["video_id"], v["title"], v["publish_date"],
-               age, v["views"], v["likes"], v["comments"]]
-        if append_if_new(ws_snap, [0, 1], row, [target_str, v["video_id"]]):
-            added += 1
+        snap_rows.append([target_str, v["video_id"], v["title"], v["publish_date"],
+                          age, v["views"], v["likes"], v["comments"]])
+    added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行（共 {len(video_stats)} 个视频）")
 
     # 日聚合（前天）
