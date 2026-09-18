@@ -80,10 +80,10 @@ def fetch_all_video_stats(youtube, channel_id):
     return stats
 
 # ---------- 3. Analytics API：拉前天频道级日明细 ----------
-def fetch_daily_stats(analytics, target_day: str):
+def fetch_daily_stats(analytics, target_day: str, channel_id: str):
     """返回前天一天的频道级指标 dict"""
     resp = analytics.reports().query(
-        ids="channel==MINE",
+        ids=f"channel=={channel_id}",
         startDate=target_day,
         endDate=target_day,
         metrics="views,estimatedMinutesWatched,subscribersGained,subscribersLost,"
@@ -176,7 +176,7 @@ def main():
     print(f"✅ 视频快照：新增 {added} 行（共 {len(video_stats)} 个视频）")
 
     # 日聚合（前天）
-    daily = fetch_daily_stats(analytics, target_str)
+    daily = fetch_daily_stats(analytics, target_str, channel_id)
     if daily:
         ws_daily = ensure_sheet(sh, SHEET_DAILY,
             ["date", "views", "watch_time_minutes", "subs_gained", "subs_lost",
