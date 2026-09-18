@@ -24,6 +24,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/drive.file",
 ]
 
 CLIENT_SECRET_FILE = "client_secret.json"
