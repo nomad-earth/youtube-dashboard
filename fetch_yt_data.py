@@ -6,17 +6,23 @@ YouTube 数据看板 · 每日全量采集脚本
 每天自动运行一次，采集 YouTube Analytics API 能提供的所有维度和指标。
 
 工作表列表：
-  1. 视频快照       — Data API：每个视频当天累计值
+  1. 视频快照       — Data API：每个视频当天累计值 + 元数据
   2. 日聚合         — Analytics API：频道级每日汇总（按天）
-  3. 视频明细       — Analytics API：按视频聚合（指定日期范围）
+  3. 视频明细       — Analytics API：按视频聚合
   4. 国家明细       — Analytics API：按国家
   5. 流量来源明细    — Analytics API：按流量来源类型
-  6. 设备明细       — Analytics API：按设备类型
-  7. 人口统计明细    — Analytics API：按年龄+性别
-  8. 播放位置明细    — Analytics API：按播放位置类型
-  9. 订阅状态明细    — Analytics API：按订阅者/非订阅者
- 10. 卡片明细       — Analytics API：卡片展示/点击（按天）
- 11. 播放列表明细   — Analytics API：添加/移除播放列表（按天）
+  6. 流量来源详情    — Analytics API：具体搜索词/外链等
+  7. 设备明细       — Analytics API：按设备类型
+  8. 操作系统明细    — Analytics API：按操作系统
+  9. 人口统计明细    — Analytics API：按年龄+性别（待解锁）
+ 10. 播放位置明细    — Analytics API：按播放位置类型
+ 11. 播放位置详情    — Analytics API：具体播放页面
+ 12. 订阅状态明细    — Analytics API：按订阅者/非订阅者
+ 13. 分享平台明细    — Analytics API：按分享服务
+ 14. 内容类型明细    — Analytics API：Shorts vs 长视频 vs 直播
+ 15. 视频留存曲线    — Analytics API：每个视频的留存时间点
+ 16. 卡片明细       — Analytics API：卡片展示/点击（按天）
+ 17. 播放列表明细    — Analytics API：添加/移除播放列表（按天）
 
 注意：Analytics API 不支持 day 和其他维度组合，
 所以非"按天"的维度用 startDate~endDate 范围拉取，每天覆盖写入。
@@ -36,10 +42,16 @@ SHEET_DAILY = "日聚合"
 SHEET_VIDEO = "视频明细"
 SHEET_COUNTRY = "国家明细"
 SHEET_TRAFFIC = "流量来源明细"
+SHEET_TRAFFIC_DETAIL = "流量来源详情"
 SHEET_DEVICE = "设备明细"
+SHEET_OS = "操作系统明细"
 SHEET_DEMO = "人口统计明细"
 SHEET_PLAYBACK = "播放位置明细"
+SHEET_PLAYBACK_DETAIL = "播放位置详情"
 SHEET_SUB = "订阅状态明细"
+SHEET_SHARING = "分享平台明细"
+SHEET_CONTENT_TYPE = "内容类型明细"
+SHEET_RETENTION = "视频留存曲线"
 SHEET_CARD = "卡片明细"
 SHEET_PLAYLIST = "播放列表明细"
 
@@ -53,6 +65,7 @@ CARD_METRICS = (
     "cardTeaserImpressions,cardTeaserClicks,cardTeaserClickRate"
 )
 PLAYLIST_METRICS = "videosAddedToPlaylists,videosRemovedFromPlaylists"
+RETENTION_METRICS = "estimatedRelativeRetainViews"
 
 
 def get_credentials(env_var, label):
@@ -80,9 +93,12 @@ def fetch_all_video_stats(youtube, channel_id):
     stats = []
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i:i + 50]
-        resp = youtube.videos().list(part="snippet,statistics", id=",".join(batch)).execute()
+        resp = youtube.videos().list(
+            part="snippet,statistics,contentDetails", id=",".join(batch)
+        ).execute()
         for item in resp.get("items", []):
             st = item.get("statistics", {})
+            cd = item.get("contentDetails", {})
             stats.append({
                 "video_id": item["id"],
                 "title": item["snippet"]["title"],
@@ -90,12 +106,15 @@ def fetch_all_video_stats(youtube, channel_id):
                 "views": int(st.get("viewCount", 0)),
                 "likes": int(st.get("likeCount", 0)),
                 "comments": int(st.get("commentCount", 0)),
+                "duration": cd.get("duration", ""),
+                "definition": cd.get("definition", ""),
+                "caption": cd.get("caption", ""),
             })
     print(f"✅ Data API：共 {len(stats)} 个视频")
     return stats
 
 
-def analytics_query(analytics, channel_id, start_date, end_date, dimensions, metrics, sort=None):
+def analytics_query(analytics, channel_id, start_date, end_date, dimensions, metrics, sort=None, filters=None):
     params = {
         "ids": f"channel=={channel_id}",
         "startDate": start_date,
@@ -106,6 +125,8 @@ def analytics_query(analytics, channel_id, start_date, end_date, dimensions, met
     }
     if sort:
         params["sort"] = sort
+    if filters:
+        params["filters"] = filters
     try:
         resp = analytics.reports().query(**params).execute()
         return resp.get("rows", [])
@@ -182,13 +203,15 @@ def main():
     video_stats = fetch_all_video_stats(youtube, channel_id)
     ws_snap = ensure_sheet(sh, SHEET_SNAPSHOT,
         ["snapshot_date", "video_id", "title", "publish_date",
-         "age_days", "total_views", "total_likes", "total_comments"])
+         "age_days", "total_views", "total_likes", "total_comments",
+         "duration", "definition", "caption"])
     snap_rows = []
     end_day = date.fromisoformat(end_date)
     for v in video_stats:
         age = (end_day - date.fromisoformat(v["publish_date"])).days
         snap_rows.append([end_date, v["video_id"], v["title"], v["publish_date"],
-                          age, v["views"], v["likes"], v["comments"]])
+                          age, v["views"], v["likes"], v["comments"],
+                          v["duration"], v["definition"], v["caption"]])
     added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行")
 
@@ -235,13 +258,25 @@ def main():
                            "views,estimatedMinutesWatched", sort="-views")
     if rows:
         ws = ensure_sheet(sh, SHEET_TRAFFIC,
-            ["period", "traffic_source", "views", "estimatedMinutesWatched", "subscribersGained"])
+            ["period", "traffic_source", "views", "estimatedMinutesWatched"])
         data = [[period] + [str(x) for x in r] for r in rows]
         n = overwrite_sheet(ws,
-            ["period", "traffic_source", "views", "estimatedMinutesWatched", "subscribersGained"], data)
+            ["period", "traffic_source", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 流量来源明细：{n} 行")
 
-    # === 6. 设备明细 ===
+    # === 6. 流量来源详情（具体搜索词/外链）===
+    rows = analytics_query(analytics, channel_id, start_date, end_date,
+                           "insightTrafficSourceType,insightTrafficSourceDetail",
+                           "views,estimatedMinutesWatched", sort="-views")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_TRAFFIC_DETAIL,
+            ["period", "traffic_source", "traffic_detail", "views", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "traffic_source", "traffic_detail", "views", "estimatedMinutesWatched"], data)
+        print(f"✅ 流量来源详情：{n} 行")
+
+    # === 7. 设备明细 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "deviceType",
                            "views,estimatedMinutesWatched,averageViewDuration", sort="-views")
     if rows:
@@ -252,9 +287,18 @@ def main():
             ["period", "device_type", "views", "estimatedMinutesWatched", "averageViewDuration"], data)
         print(f"✅ 设备明细：{n} 行")
 
-    # === 7. 人口统计明细 ===
-    # 注意：ageGroup/gender 维度对小频道/新频道可能返回 400（隐私阈值），
-    # YouTube 要求每个分组至少有一定量级数据才返回，不够就静默跳过。
+    # === 8. 操作系统明细 ===
+    rows = analytics_query(analytics, channel_id, start_date, end_date, "operatingSystem",
+                           "views,estimatedMinutesWatched", sort="-views")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_OS,
+            ["period", "operating_system", "views", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "operating_system", "views", "estimatedMinutesWatched"], data)
+        print(f"✅ 操作系统明细：{n} 行")
+
+    # === 9. 人口统计明细（待数据量解锁）===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "ageGroup,gender",
                            "views,estimatedMinutesWatched", sort="-views")
     if rows:
@@ -265,7 +309,7 @@ def main():
             ["period", "age_group", "gender", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 人口统计明细：{n} 行")
 
-    # === 8. 播放位置明细 ===
+    # === 10. 播放位置明细 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "insightPlaybackLocationType",
                            "views,estimatedMinutesWatched", sort="-views")
     if rows:
@@ -276,18 +320,64 @@ def main():
             ["period", "playback_location", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 播放位置明细：{n} 行")
 
-    # === 9. 订阅状态明细 ===
+    # === 11. 播放位置详情 ===
+    rows = analytics_query(analytics, channel_id, start_date, end_date,
+                           "insightPlaybackLocationType,insightPlaybackLocationDetail",
+                           "views,estimatedMinutesWatched", sort="-views")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_PLAYBACK_DETAIL,
+            ["period", "playback_location", "playback_detail", "views", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "playback_location", "playback_detail", "views", "estimatedMinutesWatched"], data)
+        print(f"✅ 播放位置详情：{n} 行")
+
+    # === 12. 订阅状态明细 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "subscribedStatus",
                            "views,estimatedMinutesWatched", sort="-views")
     if rows:
         ws = ensure_sheet(sh, SHEET_SUB,
-            ["period", "subscribed_status", "views", "estimatedMinutesWatched", "subscribersGained"])
+            ["period", "subscribed_status", "views", "estimatedMinutesWatched"])
         data = [[period] + [str(x) for x in r] for r in rows]
         n = overwrite_sheet(ws,
             ["period", "subscribed_status", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 订阅状态明细：{n} 行")
 
-    # === 10. 卡片明细（按天）===
+    # === 13. 分享平台明细 ===
+    rows = analytics_query(analytics, channel_id, start_date, end_date, "sharingService",
+                           "shares,estimatedMinutesWatched", sort="-shares")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_SHARING,
+            ["period", "sharing_service", "shares", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "sharing_service", "shares", "estimatedMinutesWatched"], data)
+        print(f"✅ 分享平台明细：{n} 行")
+
+    # === 14. 内容类型明细（Shorts/长视频/直播）===
+    rows = analytics_query(analytics, channel_id, start_date, end_date, "creatorContentType",
+                           "views,estimatedMinutesWatched", sort="-views")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_CONTENT_TYPE,
+            ["period", "content_type", "views", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "content_type", "views", "estimatedMinutesWatched"], data)
+        print(f"✅ 内容类型明细：{n} 行")
+
+    # === 15. 视频留存曲线 ===
+    rows = analytics_query(analytics, channel_id, start_date, end_date,
+                           "video,elapsedVideoTimeRatio",
+                           RETENTION_METRICS)
+    if rows:
+        ws = ensure_sheet(sh, SHEET_RETENTION,
+            ["period", "video_id", "time_ratio", "retention_rate"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "video_id", "time_ratio", "retention_rate"], data)
+        print(f"✅ 视频留存曲线：{n} 行")
+
+    # === 16. 卡片明细（按天）===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "day", CARD_METRICS)
     if rows:
         ws = ensure_sheet(sh, SHEET_CARD,
@@ -297,7 +387,7 @@ def main():
         added = batch_append_new(ws, [0], data)
         print(f"✅ 卡片明细：新增 {added} 行")
 
-    # === 11. 播放列表明细（按天）===
+    # === 17. 播放列表明细（按天）===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "day", PLAYLIST_METRICS)
     if rows:
         ws = ensure_sheet(sh, SHEET_PLAYLIST,
