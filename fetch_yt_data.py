@@ -99,10 +99,14 @@ def fetch_all_video_stats(youtube, channel_id):
         for item in resp.get("items", []):
             st = item.get("statistics", {})
             cd = item.get("contentDetails", {})
+            sn = item.get("snippet", {})
             stats.append({
                 "video_id": item["id"],
-                "title": item["snippet"]["title"],
-                "publish_date": item["snippet"]["publishedAt"][:10],
+                "title": sn.get("title", ""),
+                "publish_date": sn.get("publishedAt", "")[:10],
+                "description": sn.get("description", "")[:500],
+                "tags": ",".join(sn.get("tags", [])),
+                "category_id": sn.get("categoryId", ""),
                 "views": int(st.get("viewCount", 0)),
                 "likes": int(st.get("likeCount", 0)),
                 "comments": int(st.get("commentCount", 0)),
@@ -204,14 +208,16 @@ def main():
     ws_snap = ensure_sheet(sh, SHEET_SNAPSHOT,
         ["snapshot_date", "video_id", "title", "publish_date",
          "age_days", "total_views", "total_likes", "total_comments",
-         "duration", "definition", "caption"])
+         "duration", "definition", "caption",
+         "description", "tags", "category_id"])
     snap_rows = []
     end_day = date.fromisoformat(end_date)
     for v in video_stats:
         age = (end_day - date.fromisoformat(v["publish_date"])).days
         snap_rows.append([end_date, v["video_id"], v["title"], v["publish_date"],
                           age, v["views"], v["likes"], v["comments"],
-                          v["duration"], v["definition"], v["caption"]])
+                          v["duration"], v["definition"], v["caption"],
+                          v["description"], v["tags"], v["category_id"]])
     added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行")
 
@@ -365,6 +371,17 @@ def main():
             ["period", "content_type", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 内容类型明细：{n} 行")
 
+    # === 14b. 直播/点播明细 ===
+    rows = analytics_query(analytics, channel_id, start_date, end_date, "liveOrOnDemand",
+                           "views,estimatedMinutesWatched", sort="-views")
+    if rows:
+        ws = ensure_sheet(sh, "直播点播明细",
+            ["period", "live_type", "views", "estimatedMinutesWatched"])
+        data = [[period] + [str(x) for x in r] for r in rows]
+        n = overwrite_sheet(ws,
+            ["period", "live_type", "views", "estimatedMinutesWatched"], data)
+        print(f"✅ 直播点播明细：{n} 行")
+
     # === 15. 视频留存曲线 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date,
                            "video,elapsedVideoTimeRatio",
@@ -395,6 +412,22 @@ def main():
         data = [[r[0]] + [int(x) for x in r[1:]] for r in rows]
         added = batch_append_new(ws, [0], data)
         print(f"✅ 播放列表明细：新增 {added} 行")
+
+    # === 18. 频道总览（Data API 累计快照）===
+    ch = youtube.channels().list(part="snippet,statistics", id=channel_id).execute()
+    if ch.get("items"):
+        st = ch["items"][0]["statistics"]
+        ws_overview = ensure_sheet(sh, "频道总览",
+            ["snapshot_date", "channel_title", "subscribers", "total_views", "total_videos"])
+        overview_row = [
+            end_date,
+            ch["items"][0]["snippet"].get("title", ""),
+            int(st.get("subscriberCount", 0)),
+            int(st.get("viewCount", 0)),
+            int(st.get("videoCount", 0)),
+        ]
+        added = batch_append_new(ws_overview, [0], [overview_row])
+        print(f"✅ 频道总览：新增 {added} 行")
 
     print("🎉 全量采集完成")
 
