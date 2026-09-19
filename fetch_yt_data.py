@@ -95,25 +95,41 @@ def fetch_all_video_stats(youtube, channel_id):
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i:i + 50]
         resp = youtube.videos().list(
-            part="snippet,statistics,contentDetails", id=",".join(batch)
+            part="snippet,statistics,contentDetails,status", id=",".join(batch)
         ).execute()
         for item in resp.get("items", []):
             st = item.get("statistics", {})
             cd = item.get("contentDetails", {})
             sn = item.get("snippet", {})
+            sp = item.get("status", {})
             stats.append({
                 "video_id": item["id"],
                 "title": sn.get("title", ""),
                 "publish_date": sn.get("publishedAt", "")[:10],
+                "publish_time": sn.get("publishedAt", "")[11:19],
                 "description": sn.get("description", "")[:500],
                 "tags": ",".join(sn.get("tags", [])),
                 "category_id": sn.get("categoryId", ""),
+                "default_language": sn.get("defaultLanguage", ""),
+                "default_audio_language": sn.get("defaultAudioLanguage", ""),
+                "channel_id": sn.get("channelId", ""),
+                "live_broadcast_content": sn.get("liveBroadcastContent", ""),
                 "views": int(st.get("viewCount", 0)),
                 "likes": int(st.get("likeCount", 0)),
+                "favorites": int(st.get("favoriteCount", 0)),
                 "comments": int(st.get("commentCount", 0)),
                 "duration": cd.get("duration", ""),
+                "dimension": cd.get("dimension", ""),
                 "definition": cd.get("definition", ""),
                 "caption": cd.get("caption", ""),
+                "licensed_content": cd.get("licensedContent", False),
+                "has_custom_thumbnail": cd.get("hasCustomThumbnail", False),
+                "privacy_status": sp.get("privacyStatus", ""),
+                "embeddable": sp.get("embeddable", False),
+                "public_stats_viewable": sp.get("publicStatsViewable", False),
+                "made_for_kids": sp.get("madeForKids", False),
+                "license": sp.get("license", ""),
+                "is_linked": sp.get("isLinked", False),
             })
     print(f"✅ Data API：共 {len(stats)} 个视频")
     return stats
@@ -206,19 +222,33 @@ def main():
 
     # === 1. 视频快照（Data API）===
     video_stats = fetch_all_video_stats(youtube, channel_id)
-    ws_snap = ensure_sheet(sh, SHEET_SNAPSHOT,
-        ["snapshot_date", "video_id", "title", "publish_date",
-         "age_days", "total_views", "total_likes", "total_comments",
-         "duration", "definition", "caption",
-         "description", "tags", "category_id"])
+    snap_header = [
+        "snapshot_date", "video_id", "title", "publish_date", "publish_time",
+        "age_days", "total_views", "total_likes", "total_favorites", "total_comments",
+        "duration", "dimension", "definition", "caption",
+        "default_language", "default_audio_language",
+        "channel_id", "live_broadcast_content",
+        "privacy_status", "embeddable", "public_stats_viewable",
+        "made_for_kids", "license", "is_linked",
+        "has_custom_thumbnail", "licensed_content",
+        "description", "tags", "category_id"
+    ]
+    ws_snap = ensure_sheet(sh, SHEET_SNAPSHOT, snap_header)
     snap_rows = []
     end_day = date.fromisoformat(end_date)
     for v in video_stats:
         age = (end_day - date.fromisoformat(v["publish_date"])).days
-        snap_rows.append([end_date, v["video_id"], v["title"], v["publish_date"],
-                          age, v["views"], v["likes"], v["comments"],
-                          v["duration"], v["definition"], v["caption"],
-                          v["description"], v["tags"], v["category_id"]])
+        snap_rows.append([
+            end_date, v["video_id"], v["title"], v["publish_date"], v["publish_time"],
+            age, v["views"], v["likes"], v["favorites"], v["comments"],
+            v["duration"], v["dimension"], v["definition"], v["caption"],
+            v["default_language"], v["default_audio_language"],
+            v["channel_id"], v["live_broadcast_content"],
+            v["privacy_status"], v["embeddable"], v["public_stats_viewable"],
+            v["made_for_kids"], v["license"], v["is_linked"],
+            v["has_custom_thumbnail"], v["licensed_content"],
+            v["description"], v["tags"], v["category_id"]
+        ])
     added = batch_append_new(ws_snap, [0, 1], snap_rows)
     print(f"✅ 视频快照：新增 {added} 行")
 
@@ -413,17 +443,6 @@ def main():
         data = [[r[0]] + [int(x) for x in r[1:]] for r in rows]
         added = batch_append_new(ws, [0], data)
         print(f"✅ 播放列表明细：新增 {added} 行")
-
-    # === 17b. 小时聚合（按天+小时，最近7天）===
-    hourly_start = (today - timedelta(days=9)).isoformat()  # 多拉2天确保覆盖
-    rows = analytics_query(analytics, channel_id, hourly_start, end_date,
-                           "day,hour", "views,estimatedMinutesWatched,subscribersGained")
-    if rows:
-        ws = ensure_sheet(sh, SHEET_HOURLY,
-            ["date", "hour", "views", "estimatedMinutesWatched", "subscribersGained"])
-        data = [[r[0], str(r[1])] + [float(x) if isinstance(x, float) else int(x) for x in r[2:]] for r in rows]
-        added = batch_append_new(ws, [0, 1], data)
-        print(f"✅ 小时聚合：新增 {added} 行")
 
     # === 18. 频道总览（Data API 累计快照）===
     ch = youtube.channels().list(part="snippet,statistics", id=channel_id).execute()
