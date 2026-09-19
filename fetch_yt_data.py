@@ -54,6 +54,7 @@ SHEET_CONTENT_TYPE = "内容类型明细"
 SHEET_RETENTION = "视频留存曲线"
 SHEET_CARD = "卡片明细"
 SHEET_PLAYLIST = "播放列表明细"
+SHEET_HOURLY = "小时聚合"
 
 CORE_METRICS = (
     "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,"
@@ -412,6 +413,17 @@ def main():
         data = [[r[0]] + [int(x) for x in r[1:]] for r in rows]
         added = batch_append_new(ws, [0], data)
         print(f"✅ 播放列表明细：新增 {added} 行")
+
+    # === 17b. 小时聚合（按天+小时，最近7天）===
+    hourly_start = (today - timedelta(days=9)).isoformat()  # 多拉2天确保覆盖
+    rows = analytics_query(analytics, channel_id, hourly_start, end_date,
+                           "day,hour", "views,estimatedMinutesWatched,subscribersGained")
+    if rows:
+        ws = ensure_sheet(sh, SHEET_HOURLY,
+            ["date", "hour", "views", "estimatedMinutesWatched", "subscribersGained"])
+        data = [[r[0], str(r[1])] + [float(x) if isinstance(x, float) else int(x) for x in r[2:]] for r in rows]
+        added = batch_append_new(ws, [0, 1], data)
+        print(f"✅ 小时聚合：新增 {added} 行")
 
     # === 18. 频道总览（Data API 累计快照）===
     ch = youtube.channels().list(part="snippet,statistics", id=channel_id).execute()
