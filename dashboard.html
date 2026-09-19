@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JiMo Explore · YouTube 数据看板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; }
+        .kpi-value { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; }
+        .kpi-label { font-size: 0.875rem; color: #6b7280; font-weight: 500; }
+        .chart-container { width: 100%; height: 320px; }
+        .chart-container-tall { width: 100%; height: 400px; }
+        .tab-active { background: #111827; color: white; }
+        .tab-inactive { background: #f3f4f6; color: #6b7280; }
+        .tab-inactive:hover { background: #e5e7eb; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 tracking-tight">JiMo Explore</h1>
+            <p class="text-gray-500 mt-1">YouTube 数据看板 · 每日自动更新</p>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="card p-5">
+                <div class="kpi-label">总播放量</div>
+                <div class="kpi-value text-gray-900 mt-1" id="kpi-views">—</div>
+                <div class="text-sm text-green-600 mt-1" id="kpi-views-change"></div>
+            </div>
+            <div class="card p-5">
+                <div class="kpi-label">总订阅数</div>
+                <div class="kpi-value text-gray-900 mt-1" id="kpi-subs">—</div>
+                <div class="text-sm text-green-600 mt-1" id="kpi-subs-change"></div>
+            </div>
+            <div class="card p-5">
+                <div class="kpi-label">总视频数</div>
+                <div class="kpi-value text-gray-900 mt-1" id="kpi-videos">—</div>
+                <div class="text-sm text-gray-500 mt-1">累计发布</div>
+            </div>
+            <div class="card p-5">
+                <div class="kpi-label">近7天播放</div>
+                <div class="kpi-value text-gray-900 mt-1" id="kpi-week-views">—</div>
+                <div class="text-sm text-gray-500 mt-1">最近一周</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 mb-6">
+            <button class="tab-active px-4 py-2 rounded-lg text-sm font-medium transition" onclick="switchTab('overview', event)">概览</button>
+            <button class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition" onclick="switchTab('videos', event)">视频</button>
+            <button class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition" onclick="switchTab('audience', event)">观众</button>
+            <button class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition" onclick="switchTab('traffic', event)">流量</button>
+        </div>
+
+        <!-- Tab: Overview -->
+        <div id="tab-overview" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">每日播放趋势</h3>
+                    <div id="chart-trend" class="chart-container"></div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">Top 10 视频</h3>
+                    <div id="chart-top-videos" class="chart-container"></div>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">流量来源</h3>
+                    <div id="chart-traffic" class="chart-container"></div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">内容类型</h3>
+                    <div id="chart-content-type" class="chart-container"></div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">设备分布</h3>
+                    <div id="chart-device" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Videos -->
+        <div id="tab-videos" class="tab-content hidden">
+            <div class="card p-5 mb-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-4">视频明细（按播放量排序）</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-100">
+                                <th class="text-left py-3 font-medium text-gray-500">#</th>
+                                <th class="text-left py-3 font-medium text-gray-500">标题</th>
+                                <th class="text-right py-3 font-medium text-gray-500">播放量</th>
+                                <th class="text-right py-3 font-medium text-gray-500">点赞</th>
+                                <th class="text-right py-3 font-medium text-gray-500">评论</th>
+                                <th class="text-right py-3 font-medium text-gray-500">发布日期</th>
+                            </tr>
+                        </thead>
+                        <tbody id="video-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Audience -->
+        <div id="tab-audience" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">国家分布 Top 15</h3>
+                    <div id="chart-countries" class="chart-container-tall"></div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-base font-semibold text-gray-900 mb-4">操作系统分布</h3>
+                    <div id="chart-os" class="chart-container-tall"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Traffic -->
+        <div id="tab-traffic" class="tab-content hidden">
+            <div class="card p-5">
+                <h3 class="text-base font-semibold text-gray-900 mb-4">流量来源详情</h3>
+                <div id="chart-traffic-detail" class="chart-container-tall"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-8 text-center text-sm text-gray-400">
+            数据更新于 <span id="last-updated">—</span> · JiMo Explore
+        </div>
+    </div>
+
+    <script>
+        const SHEET_ID = '1TdMU55_jAO1ZpaidXB2m7qREF2tRhyDJk6T_8jTrVVI';
+        const csvUrl = (sheetName) => 
+            `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+
+        let data = {};
+
+        async function fetchCSV(sheetName) {
+            try {
+                const resp = await fetch(csvUrl(sheetName));
+                const text = await resp.text();
+                return parseCSV(text);
+            } catch (e) {
+                console.error(`Failed to fetch ${sheetName}:`, e);
+                return [];
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length < 2) return [];
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            return lines.slice(1).map(line => {
+                const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+                const row = {};
+                headers.forEach((h, i) => row[h] = values[i] || '');
+                return row;
+            });
+        }
+
+        function formatNumber(n) {
+            n = Number(n);
+            if (isNaN(n)) return '0';
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n.toString();
+        }
+
+        function switchTab(tabName, evt) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            document.querySelectorAll('.tab-active, .tab-inactive').forEach(btn => {
+                btn.classList.remove('tab-active');
+                btn.classList.add('tab-inactive');
+            });
+            if (evt && evt.target) {
+                evt.target.classList.remove('tab-inactive');
+                evt.target.classList.add('tab-active');
+            }
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+        }
+
+        async function loadAllData() {
+            const [overview, daily, videos, countries, traffic, device, os, contentType, playback] = await Promise.all([
+                fetchCSV('频道总览'),
+                fetchCSV('日聚合'),
+                fetchCSV('视频快照'),
+                fetchCSV('国家明细'),
+                fetchCSV('流量来源明细'),
+                fetchCSV('设备明细'),
+                fetchCSV('操作系统明细'),
+                fetchCSV('内容类型明细'),
+                fetchCSV('播放位置明细'),
+            ]);
+
+            data = { overview, daily, videos, countries, traffic, device, os, contentType, playback };
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            if (data.overview.length > 0) {
+                const latest = data.overview[data.overview.length - 1];
+                document.getElementById('kpi-views').textContent = formatNumber(latest.total_views);
+                document.getElementById('kpi-subs').textContent = formatNumber(latest.subscribers);
+                document.getElementById('kpi-videos').textContent = latest.total_videos || '—';
+                document.getElementById('last-updated').textContent = latest.snapshot_date;
+            }
+
+            if (data.daily.length > 0) {
+                const recent = data.daily.slice(-7);
+                const totalViews = recent.reduce((sum, r) => sum + Number(r.views || 0), 0);
+                document.getElementById('kpi-week-views').textContent = formatNumber(totalViews);
+            }
+
+            renderTrendChart();
+            renderTopVideos();
+            renderTrafficChart();
+            renderContentTypeChart();
+            renderDeviceChart();
+            renderVideoTable();
+            renderCountriesChart();
+            renderOsChart();
+        }
+
+        function renderTrendChart() {
+            const chart = echarts.init(document.getElementById('chart-trend'));
+            const dates = data.daily.map(r => r.date);
+            const views = data.daily.map(r => Number(r.views || 0));
+            const subs = data.daily.map(r => Number(r.subscribersGained || 0));
+
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['播放量', '新增订阅'], bottom: 0 },
+                grid: { left: 40, right: 20, top: 20, bottom: 40 },
+                xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#e5e7eb' } } },
+                yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f3f4f6' } } },
+                series: [
+                    {
+                        name: '播放量',
+                        type: 'line',
+                        data: views,
+                        smooth: true,
+                        lineStyle: { width: 2, color: '#3b82f6' },
+                        areaStyle: { color: 'rgba(59,130,246,0.1)' },
+                        itemStyle: { color: '#3b82f6' }
+                    },
+                    {
+                        name: '新增订阅',
+                        type: 'line',
+                        data: subs,
+                        smooth: true,
+                        lineStyle: { width: 2, color: '#10b981' },
+                        itemStyle: { color: '#10b981' }
+                    }
+                ]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderTopVideos() {
+            const chart = echarts.init(document.getElementById('chart-top-videos'));
+            const sorted = [...data.videos].sort((a, b) => Number(b.total_views) - Number(a.total_views)).slice(0, 10);
+            
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 100, right: 20, top: 10, bottom: 20 },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#f3f4f6' } } },
+                yAxis: {
+                    type: 'category',
+                    data: sorted.map(r => r.title.length > 20 ? r.title.slice(0, 20) + '...' : r.title).reverse(),
+                    axisLine: { lineStyle: { color: '#e5e7eb' } }
+                },
+                series: [{
+                    type: 'bar',
+                    data: sorted.map(r => Number(r.total_views)).reverse(),
+                    itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
+                    barWidth: 16
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderTrafficChart() {
+            const chart = echarts.init(document.getElementById('chart-traffic'));
+            chart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    center: ['50%', '50%'],
+                    data: data.traffic.map(r => ({
+                        name: r.traffic_source,
+                        value: Number(r.views)
+                    })),
+                    label: { show: false },
+                    emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.1)' } }
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderContentTypeChart() {
+            const chart = echarts.init(document.getElementById('chart-content-type'));
+            chart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    center: ['50%', '50%'],
+                    data: data.contentType.map(r => ({
+                        name: r.content_type,
+                        value: Number(r.views)
+                    })),
+                    label: { show: false }
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderDeviceChart() {
+            const chart = echarts.init(document.getElementById('chart-device'));
+            chart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    center: ['50%', '50%'],
+                    data: data.device.map(r => ({
+                        name: r.device_type,
+                        value: Number(r.views)
+                    })),
+                    label: { show: false }
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderVideoTable() {
+            const sorted = [...data.videos].sort((a, b) => Number(b.total_views) - Number(a.total_views));
+            const tbody = document.getElementById('video-table-body');
+            tbody.innerHTML = sorted.map((r, i) => `
+                <tr class="border-b border-gray-50 hover:bg-gray-50">
+                    <td class="py-3 text-gray-400">${i + 1}</td>
+                    <td class="py-3 text-gray-900">${r.title}</td>
+                    <td class="py-3 text-right font-medium">${formatNumber(r.total_views)}</td>
+                    <td class="py-3 text-right text-gray-500">${formatNumber(r.total_likes)}</td>
+                    <td class="py-3 text-right text-gray-500">${formatNumber(r.total_comments)}</td>
+                    <td class="py-3 text-right text-gray-500">${r.publish_date}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderCountriesChart() {
+            const chart = echarts.init(document.getElementById('chart-countries'));
+            const sorted = [...data.countries].sort((a, b) => Number(b.views) - Number(a.views)).slice(0, 15);
+            
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 80, right: 20, top: 10, bottom: 20 },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#f3f4f6' } } },
+                yAxis: {
+                    type: 'category',
+                    data: sorted.map(r => r.country).reverse(),
+                    axisLine: { lineStyle: { color: '#e5e7eb' } }
+                },
+                series: [{
+                    type: 'bar',
+                    data: sorted.map(r => Number(r.views)).reverse(),
+                    itemStyle: { color: '#8b5cf6', borderRadius: [0, 4, 4, 0] },
+                    barWidth: 16
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        function renderOsChart() {
+            const chart = echarts.init(document.getElementById('chart-os'));
+            const sorted = [...data.os].sort((a, b) => Number(b.views) - Number(a.views)).slice(0, 10);
+            
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                grid: { left: 100, right: 20, top: 10, bottom: 20 },
+                xAxis: { type: 'value', splitLine: { lineStyle: { color: '#f3f4f6' } } },
+                yAxis: {
+                    type: 'category',
+                    data: sorted.map(r => r.operating_system).reverse(),
+                    axisLine: { lineStyle: { color: '#e5e7eb' } }
+                },
+                series: [{
+                    type: 'bar',
+                    data: sorted.map(r => Number(r.views)).reverse(),
+                    itemStyle: { color: '#f59e0b', borderRadius: [0, 4, 4, 0] },
+                    barWidth: 16
+                }]
+            });
+            window.addEventListener('resize', () => chart.resize());
+        }
+
+        loadAllData();
+    </script>
+</body>
+</html>
