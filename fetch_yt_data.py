@@ -232,7 +232,7 @@ def main():
 
     # === 5. 流量来源明细 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "insightTrafficSourceType",
-                           "views,estimatedMinutesWatched,subscribersGained", sort="-views")
+                           "views,estimatedMinutesWatched", sort="-views")
     if rows:
         ws = ensure_sheet(sh, SHEET_TRAFFIC,
             ["period", "traffic_source", "views", "estimatedMinutesWatched", "subscribersGained"])
@@ -253,6 +253,8 @@ def main():
         print(f"✅ 设备明细：{n} 行")
 
     # === 7. 人口统计明细 ===
+    # 注意：ageGroup/gender 维度对小频道/新频道可能返回 400（隐私阈值），
+    # YouTube 要求每个分组至少有一定量级数据才返回，不够就静默跳过。
     rows = analytics_query(analytics, channel_id, start_date, end_date, "ageGroup,gender",
                            "views,estimatedMinutesWatched", sort="-views")
     if rows:
@@ -276,13 +278,13 @@ def main():
 
     # === 9. 订阅状态明细 ===
     rows = analytics_query(analytics, channel_id, start_date, end_date, "subscribedStatus",
-                           "views,estimatedMinutesWatched,subscribersGained", sort="-views")
+                           "views,estimatedMinutesWatched", sort="-views")
     if rows:
         ws = ensure_sheet(sh, SHEET_SUB,
             ["period", "subscribed_status", "views", "estimatedMinutesWatched", "subscribersGained"])
         data = [[period] + [str(x) for x in r] for r in rows]
         n = overwrite_sheet(ws,
-            ["period", "subscribed_status", "views", "estimatedMinutesWatched", "subscribersGained"], data)
+            ["period", "subscribed_status", "views", "estimatedMinutesWatched"], data)
         print(f"✅ 订阅状态明细：{n} 行")
 
     # === 10. 卡片明细（按天）===
